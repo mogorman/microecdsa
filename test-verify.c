@@ -26,76 +26,154 @@
 #include <openssl/sha.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <sys/time.h>
+
 
 #include "ecdsa.h"
 #include "rand.h"
+/*
+  Here is out works dusty.  you have two parts client and server.  the server
+  asks the client to identify himself.  He issues a challenge to the client.
+  the client responds with a copy of his public key, a time stamp + challenge
+  message, and a signature for the message.  The server then checks to see that
+  the public key matches what it has stored for the client, that the timestamp
+  is within the skew window, and that an authentication hasnt already been made
+  in the skew window, and that the challenge matches what was sent, finally it
+  runs a check to see that the signature verifies the message with the provided
+  public key.
+ */
+int verify_user(uint8_t *message, uint8_t *sig, uint8_t sig_len, uint8_t *pub);
+uint16_t challenge();
 
 int main()
 {
-	uint8_t sig[70], priv_key[32], msg[256], buffer[1000], hash[32], *p;
-	uint32_t sig_len, i, j, msg_len;
-	SHA256_CTX sha256;
-	EC_GROUP *ecgroup;
-	int cnt = 0;
+  uint16_t my_challenge = 0;
+  uint32_t time_stamp = time(NULL), temp, sig_len;
+  uint8_t sig[70], msg[6];
+  uint8_t pub_x[35] = {0};
+  uint8_t pub_y[35] = {0};
+  uint8_t msg_len;
+  int i = 0;
+  uint8_t private_key[32] = { 0x42,0xe1,0x82,0x9b,0x74,0x42,0x34,0x79,0xc6,0xbc,0xfa,0x54,
+			      0x09,0xe9,0x35,0x93,0xe9,0xed,0x9c,0xde,0x5a,0x87,0xe7,0x08,
+			      0xc6,0x07,0x49,0x73,0xe9,0x04,0x27,0x28 };
 
-	init_rand();
-	ecgroup = EC_GROUP_new_by_curve_name(NID_secp256k1);
+  init_rand();
+  my_challenge = challenge();
+  temp = time_stamp;
+  msg[0] = temp >> 24;
+  msg[1] = temp >> 16;
+  msg[2] = temp >> 8;
+  msg[3] = temp;
+  temp = my_challenge;
+  msg[4] = temp >> 8;
+  msg[5] = temp; 
+  msg_len = 6;
 
-	for (;;) {
-		// random message len between 1 and 256
-		msg_len = (random32() & 0xFF) + 1;
-		// create random message
-		for (i = 0; i < msg_len; i++) {
-			msg[i] = random32() & 0xFF;
-		}
-		// new ECDSA key
-		EC_KEY *eckey = EC_KEY_new();
-		EC_KEY_set_group(eckey, ecgroup);
-		
-		// generate the key
-		EC_KEY_generate_key(eckey);
-		p = buffer;
-		// copy key to buffer
-		i2d_ECPrivateKey(eckey, &p);
 
-		// size of the key is in buffer[8] and the key begins right after that
-		i = buffer[8];
-		// extract key data
-		if (i > 32) {
-			for (j = 0; j < 32; j++) {
-				priv_key[j] = buffer[j + i - 23];
-			}
-		} else {
-			for (j = 0; j < 32 - i; j++) {
-				priv_key[j] = 0;
-			}
-			for (j = 0; j < i; j++) {
-				priv_key[j + 32 - i] = buffer[j + 9];
-			}
-		}
+  ecdsa_sign(private_key, msg, msg_len, sig, &sig_len);
 
-		// use our ECDSA signer to sign the message with the key
-		ecdsa_sign(priv_key, msg, msg_len, sig, &sig_len);
+  ecdsa_pubkey(private_key, &pub_x, &pub_y);
 
-		// copy signature to the OpenSSL struct
-		p = sig;
-		ECDSA_SIG *signature = d2i_ECDSA_SIG(NULL, (const uint8_t **)&p, sig_len);
 
-		// compute the digest of the message
-		SHA256_Init(&sha256);
-		SHA256_Update(&sha256, msg, msg_len);
-		SHA256_Final(hash, &sha256);
+  if(!(verify_user(msg, sig, sig_len, pub_x))) {
+      printf("succesful verification");
+  } else {
+      printf("something failed!");
+  }
 
-		// verify all went well, i.e. we can decrypt our signature with OpenSSL
-		if (ECDSA_do_verify(hash, 32, signature, eckey) != 1) {
-			printf("Verification failed\n");
-			break;
-		}
-		ECDSA_SIG_free(signature);
-		EC_KEY_free(eckey);
-		cnt++;
-		if ((cnt % 100) == 0) printf("Passed ... %d\n", cnt);
-	}
-	EC_GROUP_free(ecgroup);
-	return 0;
+  printf("time:\t%d\n", time_stamp);
+  printf("chal:\t%d\n", my_challenge);
+  printf("msg:\t");
+  for (i = 0; i < msg_len; i++) {
+    if(msg[i] < 0x10) {
+      printf("0");
+    }
+    printf("%X ", msg[i]);
+  }
+  printf("\n");
+  printf("priv:\t");
+  for (i = 0; i < 32; i++) {
+    if(private_key[i] < 0x10) {
+      printf("0");
+    }
+    printf("%X ", private_key[i]);
+  }
+  printf("\n");
+  printf("pub_x:\t");
+  for (i = 2; i < 34; i++) {
+    if(pub_x[i] < 0x10) {
+      printf("0");
+    }
+    printf("%X ", pub_x[i]);
+  }
+  printf("\n");
+  printf("pub_y:\t");
+  for (i = 2; i < 34; i++) {
+    if(pub_y[i] < 0x10) {
+      printf("0");
+    }
+    printf("%X ", pub_y[i]);
+  }
+  printf("\n");
+  printf("sig:\t");
+  for (i = 0; i < sig_len; i++) {
+    if(sig[i] < 0x10) {
+      printf("0");
+    }
+    printf("%X ", sig[i]);
+    if(!((i+1)%32) && i !=0) printf("\n\t");
+  }
+  printf("\n");
+
+
+  return 0;
+}
+
+uint16_t challenge() {
+  return ((random32()>> 23));
+}
+
+int verify_user(uint8_t *message, uint8_t *sig, uint8_t sig_len, uint8_t *pub) {
+
+  ECDSA_SIG *signature;
+  SHA256_CTX sha256;
+  EC_GROUP *ecgroup;
+  EC_KEY *eckey = EC_KEY_new();
+  EC_POINT *ecpoint;
+
+  uint8_t *p, i;
+  uint8_t public_key[33] = {0};
+  uint8_t hash[32] = {0};
+
+  public_key[0] = 0x03;
+  for(i = 1; i < 34; i++) {
+    public_key[i] = pub[i+1];
+  }
+
+  p = sig;
+  signature = d2i_ECDSA_SIG(NULL, (const uint8_t **)&p, sig_len);
+  // compute the digest of the message
+  SHA256_Init(&sha256);
+  SHA256_Update(&sha256, message, 6);
+  SHA256_Final(hash, &sha256);
+
+  eckey = EC_KEY_new(); 
+  ecgroup = EC_GROUP_new_by_curve_name(NID_secp256k1);
+  ecpoint = EC_POINT_new(ecgroup); 
+  EC_KEY_set_group(eckey, ecgroup); 
+  EC_POINT_oct2point(ecgroup, 
+		     ecpoint, 
+		     public_key, 
+		     33, 
+		     NULL); 
+  EC_KEY_set_public_key(eckey, ecpoint); 
+  // verify all went well, i.e. we can decrypt our signature with OpenSSL
+  if (ECDSA_do_verify(hash, 32, signature, eckey) != 1) {
+    printf("Verification failed\n");
+  } 
+  ECDSA_SIG_free(signature);
+  EC_KEY_free(eckey);
+  /*debug */
+  return 0;
 }

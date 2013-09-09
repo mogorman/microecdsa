@@ -454,7 +454,7 @@ void ecdsa_sign(uint8_t *priv_key, uint8_t *msg, uint32_t msg_len, uint8_t *sig,
 	// compute hash function of message
 	sha256(msg, msg_len, hash);
 	// if double hash is required uncomment the following line:
-	// sha256(hash, 32, hash);
+	//sha256(hash, 32, hash);
 
 	temp = 0;
 	for (i = 0; i < 8; i++) {
