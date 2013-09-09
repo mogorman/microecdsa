@@ -42,7 +42,7 @@
   runs a check to see that the signature verifies the message with the provided
   public key.
  */
-int verify_user(uint8_t *message, uint8_t *sig, uint8_t sig_len, uint8_t *pub);
+int verify_user(uint8_t *message, uint8_t *sig, uint8_t sig_len, uint8_t *pub, uint8_t *hash);
 uint16_t challenge();
 
 int main()
@@ -52,6 +52,8 @@ int main()
   uint8_t sig[70], msg[6];
   uint8_t pub_x[35] = {0};
   uint8_t pub_y[35] = {0};
+  uint8_t hash[32] = {0};
+
   uint8_t msg_len;
   int i = 0;
   uint8_t private_key[32] = { 0x42,0xe1,0x82,0x9b,0x74,0x42,0x34,0x79,0xc6,0xbc,0xfa,0x54,
@@ -76,7 +78,7 @@ int main()
   ecdsa_pubkey(private_key, &pub_x, &pub_y);
 
 
-  if(!(verify_user(msg, sig, sig_len, pub_x))) {
+  if(!(verify_user(msg, sig, sig_len, pub_x, hash))) {
       printf("succesful verification");
   } else {
       printf("something failed!");
@@ -90,6 +92,14 @@ int main()
       printf("0");
     }
     printf("%X ", msg[i]);
+  }
+  printf("\n");
+  printf("pub:\t03 ");
+  for (i = 2; i < 34; i++) {
+    if(pub_x[i] < 0x10) {
+      printf("0");
+    }
+    printf("%X ", pub_x[i]);
   }
   printf("\n");
   printf("priv:\t");
@@ -116,6 +126,14 @@ int main()
     printf("%X ", pub_y[i]);
   }
   printf("\n");
+  printf("hash:\t");
+  for (i = 0; i < 32; i++) {
+    if(hash[i] < 0x10) {
+      printf("0");
+    }
+    printf("%X ", hash[i]);
+  }
+  printf("\n");
   printf("sig:\t");
   for (i = 0; i < sig_len; i++) {
     if(sig[i] < 0x10) {
@@ -134,7 +152,7 @@ uint16_t challenge() {
   return ((random32()>> 23));
 }
 
-int verify_user(uint8_t *message, uint8_t *sig, uint8_t sig_len, uint8_t *pub) {
+int verify_user(uint8_t *message, uint8_t *sig, uint8_t sig_len, uint8_t *pub, uint8_t *hash) {
 
   ECDSA_SIG *signature;
   SHA256_CTX sha256;
@@ -144,7 +162,6 @@ int verify_user(uint8_t *message, uint8_t *sig, uint8_t sig_len, uint8_t *pub) {
 
   uint8_t *p, i;
   uint8_t public_key[33] = {0};
-  uint8_t hash[32] = {0};
 
   public_key[0] = 0x03;
   for(i = 1; i < 34; i++) {
